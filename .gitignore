@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.venv/
+venv/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------
+# Data: never committed. The raw source dataset (University of Turku,
+# CC BY 4.0) is obtained separately; everything else under data/ is derived
+# locally by the pipelines. See data/README.md.
+data/*
+!data/README.md
+
+# Spark / Delta local artefacts
+spark-warehouse/
+metastore_db/
+derby.log
+*.crc
+_SUCCESS
+
+# Secrets and AI audit output
+.env
+.env.*
+!.env.example
+data/ai_audit/
+
+# Third-party reference documents (not redistributed; see docs/references/README.md)
+docs/references/*.pdf
+
+# Logs, temp and OS / IDE files
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.ipynb_checkpoints/

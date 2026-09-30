@@ -1,0 +1,10 @@
+# Deterministic Bronze development subset of part_3.tar.xz (archive member paths).
+# Chosen to exercise partitioning, lineage and known source quirks; see docs/bronze.md.
+part_3/20210118123538891663.csv
+part_3/20210119101259207093.csv
+part_3/20210119101555909929.csv
+part_3/20210119105907167768.csv
+part_3/20210122080905230726.csv
+part_3/20210210235813006696.csv
+part_3/20210210235911847662.csv
+part_3/20210211000010684508.csv
