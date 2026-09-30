@@ -1,5 +1,5 @@
 // Display formatting only - unit conversion for readability, no metric derivation.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const DASH = "—";
 
@@ -62,11 +62,21 @@ export const shortSession = (id: string) => {
   return m ? `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6)} ${m[2].slice(0, 2)}:${m[2].slice(2, 4)}` : id;
 };
 
-export function useApi<T>(fn: () => Promise<T>, deps: unknown[]): { data?: T; error?: Error; loading: boolean } {
+export interface ApiState<T> {
+  data?: T;
+  error?: Error;
+  loading: boolean;
+  /** Re-run the request (used by retry buttons). */
+  reload: () => void;
+}
+
+export function useApi<T>(fn: () => Promise<T>, deps: unknown[]): ApiState<T> {
   const [state, setState] = useState<{ data?: T; error?: Error; loading: boolean }>({ loading: true });
+  const [attempt, setAttempt] = useState(0);
+  const reload = useCallback(() => setAttempt((a) => a + 1), []);
   useEffect(() => {
     let live = true;
-    setState((s) => ({ ...s, loading: true }));
+    setState((s) => ({ ...s, error: undefined, loading: true }));
     fn()
       .then((data) => live && setState({ data, loading: false }))
       .catch((error) => live && setState({ error, loading: false }));
@@ -74,6 +84,6 @@ export function useApi<T>(fn: () => Promise<T>, deps: unknown[]): { data?: T; er
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-  return state;
+  }, [...deps, attempt]);
+  return { ...state, reload };
 }

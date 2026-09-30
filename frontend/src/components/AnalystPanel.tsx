@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { aiApi, type AiStatus, type AnalystScope, type AskBody, type AskResponse } from "../lib/api";
 import { shortSession } from "../lib/format";
+import { Provenance, type ProvenanceKind } from "./foundation/Provenance";
 import { Badge, ConfidenceBadge, InterpretationBadge } from "./ui";
 
 const SUGGESTIONS: Record<AnalystScope, string[]> = {
@@ -48,69 +49,84 @@ function evidenceLink(id: string) {
   return <span className="mono">{id}</span>;
 }
 
+function Section({ n, title, prov, children, open = true }: { n: number; title: string; prov?: ProvenanceKind; children: ReactNode; open?: boolean }) {
+  return (
+    <details className="ans-sec" open={open}>
+      <summary>
+        <span className="ans-n mono">{n}</span>
+        <span className="ans-t">{title}</span>
+        {prov && <Provenance kind={prov} />}
+      </summary>
+      <div className="ans-body">{children}</div>
+    </details>
+  );
+}
+
 function AnswerCard({ r }: { r: AskResponse }) {
-  const [showEvidence, setShowEvidence] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const interp = r.answer_source === "llm" ? `AI interpretation · ${r.model}` : r.answer_source === "mock"
+    ? "Mock analyst answer · development output, not an LLM" : "FleetPulse deterministic summary";
   return (
     <div className="answer">
-      <div className="row" style={{ marginBottom: 8 }}>
-        <SourceBadge r={r} />
+      {r.is_mock && <div className="mock-banner" role="note">Development mock · not an LLM</div>}
+      <div className="row" style={{ marginBottom: 10 }}>
+        {!r.is_mock && <SourceBadge r={r} />}
         <ConfidenceBadge level={r.confidence.detection} />
         <InterpretationBadge status={r.confidence.interpretation} />
       </div>
-      <div className="ans-label">
-        {r.answer_source === "llm" ? "AI interpretation" : r.answer_source === "mock"
-          ? "Mock analyst answer · development output, not an LLM" : "FleetPulse deterministic summary"}
-      </div>
-      <p className="ans-text">{r.answer}</p>
-      <p className="small muted" style={{ marginTop: 4 }}>{STATUS_NOTE[r.status]}</p>
 
-      <div className="ans-label measured">Measured by FleetPulse</div>
-      <table className="facts">
-        <tbody>
-          {r.measured_facts.map((f) => (
-            <tr key={f.id}>
-              <td>{f.label}</td>
-              <td className="mono">{f.display}</td>
-              <td className="muted small">{f.source === "gold" ? "Gold" : f.source === "derived_from_gold" ? "derived from Gold" : "Gold scenario engine"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Section n={1} title="Measured by FleetPulse" prov="measured">
+        <table className="facts">
+          <tbody>
+            {r.measured_facts.map((f) => (
+              <tr key={f.id}>
+                <td>{f.label}</td>
+                <td className="mono">{f.display}</td>
+                <td className="muted small">{f.source === "gold" ? "Gold" : f.source === "derived_from_gold" ? "derived from Gold" : "Gold scenario engine"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Section>
 
-      <div className="grid g2" style={{ marginTop: 12 }}>
-        <div>
-          <div className="ans-label">Limitations</div>
-          <ul className="ans-list">{r.limitations.map((l) => <li key={l}>{l}</li>)}</ul>
-        </div>
-        <div>
-          <div className="ans-label">Possible next investigation</div>
-          <ul className="ans-list">{r.suggested_investigations.map((l) => <li key={l}>{l}</li>)}</ul>
-        </div>
-      </div>
+      <Section n={2} title="Interpretation" prov={r.answer_source === "llm" ? "ai" : "derived"}>
+        <div className="ans-label">{interp}</div>
+        <p className="ans-text">{r.answer}</p>
+        <div className="ans-label" style={{ marginTop: 12 }}>FleetPulse classification</div>
+        <p className="small text-2" style={{ margin: 0 }}>{r.fleetpulse_interpretation.join(" ")}</p>
+      </Section>
 
-      <div className="row" style={{ marginTop: 10 }}>
-        <button className="btn small-btn" onClick={() => setShowEvidence(!showEvidence)}>{showEvidence ? "Hide" : "Inspect"} evidence used</button>
-        <span className="small muted mono">{r.request_id}</span>
-      </div>
-      {showEvidence && (
-        <div className="ev-used">
-          <dl className="dl">
-            <dt>Evidence</dt>
-            <dd className="ev-ids">{r.evidence_ids.map((id) => <span key={id}>{evidenceLink(id)}</span>)}</dd>
-            <dt>FleetPulse classification</dt><dd style={{ fontFamily: "inherit" }}>{r.fleetpulse_interpretation.join(" ")}</dd>
-            <dt>Gold build</dt><dd>{r.gold_build_id}</dd>
-            <dt>Rule / policy</dt><dd>{r.rule_version} · {r.policy_version}</dd>
-            <dt>Provider</dt><dd>{r.provider} · {r.model}{r.is_mock ? " (mock)" : ""}</dd>
-            <dt>Validation</dt><dd>{r.validation.passed ? "passed" : "not passed"} · {r.validation.attempts} attempt(s)
-              {r.validation.issues.length > 0 && <div className="muted small">{r.validation.issues.join(" · ")}</div>}</dd>
-            {r.input_flags.length > 0 && (<><dt>Input flags</dt><dd>{r.input_flags.join(", ")}</dd></>)}
-            {r.scenario_inputs_source && (<><dt>Scenario inputs</dt><dd>{r.scenario_inputs_source.replace(/_/g, " ")}</dd></>)}
-          </dl>
-          <button className="btn small-btn" onClick={() => setShowRaw(!showRaw)}>{showRaw ? "Hide" : "Show"} evidence package JSON</button>
-          {showRaw && <pre>{JSON.stringify(r.evidence_context, null, 2)}</pre>}
-        </div>
-      )}
+      <Section n={3} title="Limitations">
+        <ul className="ans-list">{r.limitations.map((l) => <li key={l}>{l}</li>)}</ul>
+      </Section>
+
+      <Section n={4} title="What to investigate next">
+        <ul className="ans-list">{r.suggested_investigations.map((l) => <li key={l}>{l}</li>)}</ul>
+      </Section>
+
+      <Section n={5} title="Evidence" open={false}>
+        <div className="ev-ids">{r.evidence_ids.map((id) => <span key={id}>{evidenceLink(id)}</span>)}</div>
+        <dl className="dl" style={{ marginTop: 10 }}>
+          <dt>Gold build</dt><dd>{r.gold_build_id}</dd>
+          <dt>Rule / policy</dt><dd>{r.rule_version} · {r.policy_version}</dd>
+          {r.scenario_inputs_source && (<><dt>Scenario inputs</dt><dd>{r.scenario_inputs_source.replace(/_/g, " ")}</dd></>)}
+        </dl>
+        <button className="btn small-btn" style={{ marginTop: 8 }} onClick={() => setShowRaw(!showRaw)}>{showRaw ? "Hide" : "Show"} evidence package JSON</button>
+        {showRaw && <pre>{JSON.stringify(r.evidence_context, null, 2)}</pre>}
+      </Section>
+
+      <Section n={6} title="Validation" open={false}>
+        <p className={`small ${r.validation.passed ? "" : "text-2"}`} style={{ margin: 0 }}>
+          <span aria-hidden="true">{r.validation.passed ? "✓ " : "↺ "}</span>{STATUS_NOTE[r.status]}
+        </p>
+        <dl className="dl" style={{ marginTop: 8 }}>
+          <dt>Provider</dt><dd>{r.provider} · {r.model}{r.is_mock ? " (mock)" : ""}</dd>
+          <dt>Attempts</dt><dd>{r.validation.attempts}</dd>
+          <dt>Request</dt><dd>{r.request_id}</dd>
+          {r.input_flags.length > 0 && (<><dt>Input flags</dt><dd>{r.input_flags.join(", ")}</dd></>)}
+        </dl>
+        {r.validation.issues.length > 0 && <ul className="ans-list" style={{ marginTop: 6 }}>{r.validation.issues.map((x) => <li key={x}>{x}</li>)}</ul>}
+      </Section>
     </div>
   );
 }
@@ -136,7 +152,7 @@ export default function AnalystPanel(props: AnalystContext & { onClose?: () => v
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
   useEffect(() => {
-    if (turns.length) endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (turns.length) endRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
   }, [turns.length]);
 
   const max = status?.max_question_chars ?? 1000;
@@ -168,7 +184,7 @@ export default function AnalystPanel(props: AnalystContext & { onClose?: () => v
       <div className="row small" style={{ marginBottom: 10 }}>
         <span className="scope-pill">{SCOPE_LABEL[props.scope]}</span>
         {status && (status.available
-          ? (status.is_mock ? <Badge tone="warning">Mock provider · development</Badge> : <Badge tone="good">{status.provider} · {status.model}</Badge>)
+          ? (status.is_mock ? <Badge tone="warning">Development mock · not an LLM</Badge> : <Badge tone="good">{status.provider} · {status.model}</Badge>)
           : <Badge tone="serious">Analyst unavailable</Badge>)}
       </div>
       <p className="statement small" style={{ marginTop: 0 }}>

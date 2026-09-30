@@ -19,7 +19,7 @@ export default function AiAnalyst() {
         <AnalystPanel scope="overall" inline initialQuestion={sp.get("q")} />
         <div className="grid" style={{ alignContent: "start" }}>
           <Panel title="Ask in context">
-            <p className="small" style={{ color: "#c3c2b7", marginTop: 0 }}>
+            <p className="small" style={{ color: "var(--text-2)", marginTop: 0 }}>
               Open the analyst from an <Link to="/idle/events">event</Link>, a <Link to="/sessions">session</Link> or the{" "}
               <Link to="/idle/scenario">Impact Scenario</Link> to ground it on that evidence.
             </p>

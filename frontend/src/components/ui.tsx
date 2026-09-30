@@ -1,16 +1,40 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import type { IdleEvent } from "../lib/api";
 import { clock, duration, neighbour, num, shortSession, tag, ts } from "../lib/format";
+import { QueryError } from "./foundation/ApiState";
+import { Provenance, type ProvenanceKind } from "./foundation/Provenance";
+import { PageSkeleton, Skeleton } from "./foundation/Skeleton";
 
-export function Kpi(props: { label: ReactNode; value: ReactNode; unit?: string; sub?: ReactNode; swatch?: string; to?: string }) {
+/** Enter / Space activate a non-button element that behaves like a link. */
+export function activateOnKey(fn: () => void) {
+  return (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      fn();
+    }
+  };
+}
+
+export function Kpi(props: {
+  label: ReactNode; value: ReactNode; unit?: string; sub?: ReactNode; swatch?: string; to?: string;
+  /** where the value comes from (shown subtly in the corner) */
+  provenance?: ProvenanceKind;
+  /** e.g. "Reference event" - states the historical context of the value */
+  context?: string;
+}) {
   const nav = useNavigate();
+  const go = props.to ? () => nav(props.to!) : undefined;
   return (
-    <div className={`kpi${props.to ? " link" : ""}`} onClick={props.to ? () => nav(props.to!) : undefined}
-      role={props.to ? "link" : undefined}>
-      <div className="kpi-label">
-        {props.swatch && <span className="swatch" style={{ background: props.swatch }} />}
-        {props.label}
+    <div className={`kpi${props.to ? " link" : ""}`} onClick={go} onKeyDown={go && activateOnKey(go)}
+      role={props.to ? "link" : undefined} tabIndex={props.to ? 0 : undefined}>
+      {props.context && <div className="kpi-context">{props.context}</div>}
+      <div className="kpi-top">
+        <div className="kpi-label">
+          {props.swatch && <span className="swatch" style={{ background: props.swatch }} aria-hidden="true" />}
+          {props.label}
+        </div>
+        {props.provenance && <Provenance kind={props.provenance} compact />}
       </div>
       <div className="kpi-value">
         {props.value}
@@ -21,12 +45,23 @@ export function Kpi(props: { label: ReactNode; value: ReactNode; unit?: string; 
   );
 }
 
-export function Panel(props: { title: ReactNode; question?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
+/** Generic surface. `interactive` adds hover elevation (use for clickable cards). */
+export function Card(props: { children: ReactNode; className?: string; interactive?: boolean; as?: "div" | "section" | "article" }) {
+  const Tag = props.as ?? "div";
+  return <Tag className={`card${props.interactive ? " interactive" : ""} ${props.className ?? ""}`}>{props.children}</Tag>;
+}
+
+export function Panel(props: {
+  title: ReactNode; question?: ReactNode; right?: ReactNode; children: ReactNode; className?: string; provenance?: ProvenanceKind;
+}) {
   return (
     <section className={`panel ${props.className ?? ""}`}>
       <div className="panel-head">
         <h2>{props.title}</h2>
-        {props.right}
+        <div className="row" style={{ gap: 12 }}>
+          {props.provenance && <Provenance kind={props.provenance} />}
+          {props.right}
+        </div>
       </div>
       {props.question && <p className="panel-q">{props.question}</p>}
       {props.children}
@@ -52,8 +87,18 @@ export const InterpretationBadge = ({ status }: { status: string }) => (
 export const AttentionBadge = ({ group }: { group: string }) =>
   group === "extended" ? <Badge tone="warning">Extended · review</Badge> : <Badge tone="neutral">Routine / short</Badge>;
 
-export const Loading = () => <div className="loading">Loading Gold data…</div>;
-export const ErrorBox = ({ error }: { error: Error }) => <div className="error">Could not load: {error.message}</div>;
+/** Page-level loading placeholder (layout skeleton, no values). */
+export const Loading = ({ embedded = false }: { embedded?: boolean }) =>
+  embedded ? (
+    <div role="status" aria-live="polite" aria-busy="true" className="grid" style={{ gap: 8 }}>
+      <span className="sr-only">Loading…</span>
+      {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} height={34} />)}
+    </div>
+  ) : <PageSkeleton />;
+/** Page-level error: "backend unavailable" gets the polished connection state; other errors a calm panel. */
+export const ErrorBox = ({ error, onRetry, embedded = false }: { error: Error; onRetry?: () => void; embedded?: boolean }) => (
+  <QueryError error={error} onRetry={onRetry} wrap={!embedded} />
+);
 
 export const Tags = ({ tags }: { tags: string[] | null }) => (
   <span className="row" style={{ gap: 4 }}>
@@ -102,8 +147,10 @@ export function EventTable(props: {
         </thead>
         <tbody>
           {props.events.map((e) => (
-            <tr key={e.event_id} className={`clickable${e.duration_class === "over_15_min" ? " hl" : ""}`}
-              onClick={() => nav(`/idle/events/${encodeURIComponent(e.event_id)}`)}>
+            <tr key={e.event_id} className={`clickable${e.duration_class === "over_15_min" ? " hl" : ""}`} tabIndex={0}
+              aria-label={`Open event starting ${ts(e.event_start)}, ${duration(e.duration_seconds)}`}
+              onClick={() => nav(`/idle/events/${encodeURIComponent(e.event_id)}`)}
+              onKeyDown={activateOnKey(() => nav(`/idle/events/${encodeURIComponent(e.event_id)}`))}>
               <td className="strong mono">{ts(e.event_start)}</td>
               {props.showSession && <td className="mono">{shortSession(e.recording_session_id)}</td>}
               <td className="num strong">{duration(e.duration_seconds)}</td>

@@ -22,7 +22,7 @@ export default function Scenario() {
   const [showAnalyst, setShowAnalyst] = useState(false);
   const [lastBody, setLastBody] = useState<ScenarioRequest>();
 
-  if (summary.error) return <ErrorBox error={summary.error} />;
+  if (summary.error) return <ErrorBox error={summary.error} onRetry={summary.reload} />;
   if (!summary.data) return <Loading />;
   const sm = summary.data;
 
@@ -71,7 +71,7 @@ export default function Scenario() {
                 <input value={currency} maxLength={8} style={{ width: 70 }} onChange={(e) => setCurrency(e.target.value)} />
               </label>
             </div>
-            <label className="row small" style={{ color: "#c3c2b7" }}>
+            <label className="row small" style={{ color: "var(--text-2)" }}>
               <input type="checkbox" checked={extra} onChange={(e) => setExtra(e.target.checked)} /> Add an extrapolation (optional)
             </label>
             {extra && (
@@ -101,11 +101,11 @@ export default function Scenario() {
             <>
               <div className="scenario-banner" style={{ marginBottom: 14 }}>{result.label}</div>
               <div className="grid g2">
-                <Kpi label="Observed stationary fuel (basis)" value={num(result.inputs.observed_stationary_fuel_l, 3)} unit="L" sub="observed · Gold" />
-                <Kpi label="Assumed avoidable share" value={num(result.inputs.operator_selected_avoidable_percentage, 1)} unit="%" sub="your assumption" />
-                <Kpi label="Scenario fuel" value={num(result.scenario_avoidable_fuel_l, 3)} unit="L" sub="estimate, not observed" />
+                <Kpi label="Observed stationary fuel (basis)" value={num(result.inputs.observed_stationary_fuel_l, 3)} unit="L" sub="observed · Gold" provenance="measured" />
+                <Kpi label="Assumed avoidable share" value={num(result.inputs.operator_selected_avoidable_percentage, 1)} unit="%" sub="your assumption" provenance="assumed" />
+                <Kpi label="Scenario fuel" value={num(result.scenario_avoidable_fuel_l, 3)} unit="L" sub="estimate, not observed" provenance="derived" />
                 <Kpi label="Scenario cost exposure" value={num(result.scenario_cost_exposure, 2)} unit={result.inputs.currency}
-                  sub={`at ${num(result.inputs.operator_selected_fuel_price_per_l, 2)} ${result.inputs.currency}/L (your input)`} />
+                  sub={`at ${num(result.inputs.operator_selected_fuel_price_per_l, 2)} ${result.inputs.currency}/L (your input)`} provenance="derived" />
               </div>
               {result.projection && (
                 <div style={{ marginTop: 14 }}>

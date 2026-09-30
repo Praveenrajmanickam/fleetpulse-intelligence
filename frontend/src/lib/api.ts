@@ -243,24 +243,44 @@ export interface ScenarioResult {
   build: BuildInfo;
 }
 
+/** How the UI should treat a failed request. "unavailable" = the backend could not be reached. */
+export type ApiErrorKind = "unavailable" | "not_found" | "invalid" | "server";
+
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public kind: ApiErrorKind = classifyStatus(status, true)) {
     super(message);
   }
 }
 
+/** FastAPI always answers with JSON. A non-JSON 5xx comes from a proxy / gateway whose upstream (the API) is down. */
+export function classifyStatus(status: number, jsonBody: boolean): ApiErrorKind {
+  if (status === 0 || status === 502 || status === 503 || status === 504) return "unavailable";
+  if (status >= 500) return jsonBody ? "server" : "unavailable";
+  if (status === 404) return "not_found";
+  return "invalid";
+}
+
+export const isUnavailable = (e: unknown): boolean => e instanceof ApiError && e.kind === "unavailable";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`/api/v1${path}`, init);
+  let r: Response;
+  try {
+    r = await fetch(`/api/v1${path}`, init);
+  } catch {
+    throw new ApiError(0, "The FleetPulse API could not be reached.", "unavailable");
+  }
   if (!r.ok) {
     let detail = r.statusText;
+    let jsonBody = false;
     try {
       const body = await r.json();
+      jsonBody = true;
       detail = typeof body.detail === "string" ? body.detail
         : body.detail?.message ?? (Array.isArray(body.detail) ? body.detail.map((d: { msg: string }) => d.msg).join("; ") : JSON.stringify(body.detail));
     } catch {
       /* keep statusText */
     }
-    throw new ApiError(r.status, detail);
+    throw new ApiError(r.status, detail, classifyStatus(r.status, jsonBody));
   }
   return r.json() as Promise<T>;
 }
@@ -363,4 +383,149 @@ export const aiApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+};
+
+// ---- Signals (Dashboard V2): catalog, data/signal health, traceability ----
+
+export type SystemId = "engine" | "fuel" | "cooling" | "driver" | "motion" | "environment";
+
+export interface SignalCaveat {
+  level: "quality_warning" | "unavailable" | "note";
+  text: string;
+  source: string;
+}
+
+export interface SignalCatalogItem {
+  name: string;
+  label: string;
+  system: SystemId;
+  system_label: string;
+  pgn: number;
+  pgn_hex: string;
+  message: string;
+  message_name: string;
+  spn: number;
+  unit: string;
+  description: string;
+  fms_period_ms: number;
+  freshness_limit_ms: number;
+  freshness_column: string;
+  status_column: string;
+  decode: {
+    position: string;
+    start_byte: number;
+    length_bits: number;
+    byte_order: string;
+    kind: "measured" | "discrete";
+    resolution?: number;
+    offset?: number;
+    unit?: string;
+    operating_range?: [number, number];
+    formula?: string;
+    start_bit?: number;
+    states?: Record<string, string>;
+    not_available_code?: number;
+    error_code?: number;
+  };
+  reference: string;
+  standard: string;
+  caveats: SignalCaveat[];
+  gold_use: { kind: string; text: string };
+}
+
+export interface HealthScope {
+  rows: number;
+  status_counts: Record<string, number>;
+  freshness_counts: Record<string, number>;
+  available_rows: number;
+  stale_rows: number;
+  no_observation_rows: number;
+  unavailable_rows: number;
+  available_pct: number | null;
+}
+
+export type HealthState = "available" | "partial" | "unavailable" | "quality_warning";
+
+export interface SignalHealthItem {
+  name: string;
+  label: string;
+  system: SystemId;
+  message: string;
+  pgn: number;
+  spn: number;
+  state: HealthState;
+  caveats: SignalCaveat[];
+  scopes: { all_rows: HealthScope; engine_running_rows: HealthScope };
+}
+
+export interface SignalHealth {
+  statement: string;
+  scope: {
+    vehicle_id: string;
+    vehicles: number;
+    dataset: string;
+    silver_build_ids: string[];
+    recording_sessions: number;
+    grid: string;
+    window_start: string;
+    window_end: string;
+    timestamp_timezone: string;
+    historical: boolean;
+    note: string;
+  };
+  rows_analysed: number;
+  engine_running_rows: number;
+  engine_running_definition: string;
+  freshness_rule: string;
+  state_rules: Record<HealthState, string>;
+  signals: SignalHealthItem[];
+}
+
+export interface SignalTrace {
+  signal: string;
+  label: string;
+  system: SystemId;
+  anchor: { event_id: string; default_reference_event: boolean; rule: string };
+  steps: {
+    raw_can: {
+      timestamp: string; can_id: number; can_id_hex: string; dlc: number; data: (number | null)[]; data_hex: string;
+      source_archive: string; source_file: string; source_line: number; ingestion_run_id: string;
+    };
+    j1939: {
+      priority: number; pgn: number; pgn_hex: string; pdu_format: number; pdu_specific: number; is_pdu2: boolean;
+      source_address: number; message: string; message_name: string;
+    };
+    spn: { spn: number; label: string; reference: string; description: string };
+    decode: SignalCatalogItem["decode"] & { bytes: { byte: number; value: number | null; hex: string | null }[]; raw: number | null };
+    physical: { value: number | null; unit: string; status: string; state_label: string | null };
+    silver_signal_event: null | {
+      event_timestamp: string; message: string; pgn: number; spn: number; signal_name: string; signal_raw: number;
+      signal_value: number | null; signal_unit: string; signal_status: string; source_file: string; source_line: number;
+      ingestion_run_id: string; silver_build_id: string;
+    };
+    silver_telemetry: {
+      grid_timestamp: string; column: string; value: number | null; status: string | null; age_ms: number;
+      freshness: string; freshness_limit_ms: number; recording_session_id: string; silver_build_id: string;
+    };
+    gold_event: {
+      event_id: string; event_start: string; event_end: string; duration_seconds: number; fuel_consumed_l: number;
+      average_engine_rpm: number; detection_confidence: string; interpretation_status: string; rule_version: string;
+      gold_build_id: string; signal_role: { kind: string; text: string };
+    };
+    intelligence: { text: string; attention_group: string };
+  };
+  checks: { decoder_matches_silver_event: boolean | null; decoder_matches_telemetry: boolean };
+}
+
+/** Catalog and health are static per Gold/Silver build: fetch once per page load (failed requests are not cached). */
+const once = <T,>(fn: () => Promise<T>) => {
+  let p: Promise<T> | undefined;
+  return () => (p ??= fn().catch((e) => { p = undefined; throw e; }));
+};
+
+export const signalsApi = {
+  catalog: once(() => request<{ standard: string; count: number; source: string; items: SignalCatalogItem[] }>("/signals")),
+  health: once(() => request<SignalHealth>("/signals/health")),
+  trace: (name: string, eventId?: string) =>
+    request<SignalTrace>(`/signals/${encodeURIComponent(name)}/trace${eventId ? `?event_id=${encodeURIComponent(eventId)}` : ""}`),
 };

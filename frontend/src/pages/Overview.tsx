@@ -1,90 +1,162 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import AnalystPanel from "../components/AnalystPanel";
-import { EngineTimeComposition, ShareBar, C } from "../components/charts";
-import { ErrorBox, Kpi, Loading, Panel } from "../components/ui";
-import { api } from "../lib/api";
+import { C } from "../components/charts";
+import { Provenance } from "../components/foundation/Provenance";
+import { PanelSkeleton } from "../components/foundation/Skeleton";
+import { ErrorBox, Kpi, Loading } from "../components/ui";
+import VehicleVisualization from "../components/vehicle/VehicleVisualization";
+import type { SignalAnnotation } from "../components/vehicle/types";
+import { api, signalsApi } from "../lib/api";
 import { duration, int, num, ts, useApi } from "../lib/format";
 
 export default function Overview() {
-  const { data, error } = useApi(api.overview, []);
+  const { data, error, reload } = useApi(api.overview, []);
+  const summary = useApi(api.idleSummary, []);
+  const health = useApi(signalsApi.health, []);
   const [showAnalyst, setShowAnalyst] = useState(false);
-  if (error) return <ErrorBox error={error} />;
+  const nav = useNavigate();
+  if (error) return <ErrorBox error={error} onRetry={reload} />;
   if (!data) return <Loading />;
   const k = data.kpis;
   const s = data.sessions;
+  const sm = summary.data;
+  const ref = sm?.highlighted_events[0];
+  const amb = health.data?.signals.find((x) => x.name === "ambient_temp_c");
+  const refCtx = ref ? { kind: "reference_event" as const, eventId: ref.event_id } : undefined;
+
+  const annotations: SignalAnnotation[] = [];
+  if (ref && refCtx) {
+    annotations.push(
+      { signal: "engine_speed_rpm", label: "Avg engine speed", value: num(ref.average_engine_rpm, 1), unit: "rpm", context: refCtx, provenance: "measured" },
+      { signal: "fuel_rate_lph", label: "Fuel in event", value: num(ref.fuel_consumed_l, 3), unit: "L", context: refCtx, provenance: "measured" },
+      { signal: "coolant_temp_c", label: "Coolant", value: `${num(ref.coolant_start_c, 0)} → ${num(ref.coolant_end_c, 0)}`, unit: "°C", context: refCtx, provenance: "measured" },
+      { signal: "wheel_speed_kph", label: "Vehicle state", value: "Stationary", context: refCtx, provenance: "derived" },
+    );
+  }
+  if (amb) {
+    annotations.push({ signal: "ambient_temp_c", label: "Ambient temp", value: amb.state === "quality_warning" ? "Quality warning" : "Available",
+      context: { kind: "dataset" }, provenance: "derived", quality: amb.state === "quality_warning" ? "warning" : "ok" });
+  }
+  const dist = sm?.duration_distribution ?? [];
+  const maxEvents = Math.max(1, ...dist.map((d) => d.events));
+
   return (
-    <div className="page">
+    <div className="page overview">
       {showAnalyst && <AnalystPanel scope="overall" onClose={() => setShowAnalyst(false)} />}
-      <div className="page-head spread" style={{ alignItems: "flex-end" }}>
-        <div>
-        <div className="eyebrow">Overview · one vehicle · Part 3 observation window</div>
-        <h1>Vehicle operation during the observation window</h1>
-        <p className="lede">
-          Measured from J1939/FMS telemetry of a single Renault T520 ({ts(data.scope.period_start, false)} to{" "}
-          {ts(data.scope.period_end, false)}, logger wall clock). These are observations of one vehicle, not fleet-wide figures.
-        </p>
-        </div>
-        <button className="btn primary" onClick={() => setShowAnalyst(true)}>Ask FleetPulse AI</button>
-      </div>
 
-      <div className="grid g4">
-        <Kpi label="Engine-on time" value={num(k.engine_on_hours, 2)} unit="h" sub={`${s.engine_operation_sessions} engine-operation sessions`} to="/sessions" />
-        <Kpi label="Distance" value={num(k.distance_km, 1)} unit="km" sub="integrated wheel speed (Gold)" />
-        <Kpi label="Observed fuel" value={num(k.fuel_consumed_l, 1)} unit="L" sub="FMS fuel rate, reconciled with fuel counter" />
-        <Kpi label="Engine-operation sessions" value={int(s.engine_operation_sessions)} sub={`≥ 0.1 h engine-on · ${s.recording_sessions_total} recording sessions in total`} to="/sessions" />
-      </div>
-
-      <div className="grid g4" style={{ marginTop: 16 }}>
-        <Kpi label="Moving" swatch={C.moving} value={num(k.moving_hours, 2)} unit="h" sub="engine on, wheel speed ≥ 0.5 km/h" />
-        <Kpi label="Stationary, engine on" swatch={C.stationary} value={num(k.stationary_engine_on_hours, 2)} unit="h"
-          sub={`${num(k.stationary_pct_of_engine_on_time, 1)} % of engine-on time`} to="/idle" />
-        <Kpi label="Fuel while stationary" swatch={C.stationary} value={num(k.stationary_fuel_consumed_l, 2)} unit="L"
-          sub={`${num(k.stationary_fuel_pct, 2)} % of observed fuel`} to="/idle" />
-        <Kpi label="Sessions with > 15 min stationary" value={`${int(s.sessions_with_over_15_min_stationary)} / ${int(s.engine_operation_sessions)}`}
-          sub="sessions accumulated > 15 min stationary engine-on time" to="/sessions" />
-      </div>
-
-      <div className="grid g2 section">
-        <Panel title="Engine-on time composition" question="How much of the engine-on time was spent stationary?">
-          <EngineTimeComposition movingH={k.moving_hours} stationaryH={k.stationary_engine_on_hours}
-            engineOnH={k.engine_on_hours} stationaryPct={k.stationary_pct_of_engine_on_time} />
-        </Panel>
-        <Panel title="Observed fuel while stationary" question="What share of the observed fuel was used with the vehicle stationary?">
-          <ShareBar pct={k.stationary_fuel_pct} color={C.stationary}
-            label={`Stationary engine-on · ${num(k.stationary_fuel_consumed_l, 2)} L of ${num(k.fuel_consumed_l, 1)} L`} />
-          <p className="small muted" style={{ marginTop: 10, marginBottom: 0 }}>
-            Observed consumption. The telemetry does not say whether any of it could have been avoided.
-          </p>
-        </Panel>
-      </div>
-
-      <div className="grid g-2-1 section">
-        <Panel title="Solution module #1 · Idle Intelligence" question="Where did the vehicle stand with the engine running, and for how long?"
-          right={<Link to="/idle">Open module →</Link>}>
-          <div className="grid g3">
-            <Kpi label="Stationary engine-on events" value={int(k.stationary_events)} sub="most are short stops between driving" to="/idle/events" />
-            <Kpi label="Events > 15 min" value={int(k.stationary_events_over_15_min)} sub="highlighted for review" to="/idle" />
-            <Kpi label="Rule" value={data.build.rule_version} sub="rpm ≥ 300 & speed < 0.5 km/h, ≥ 2 s" />
+      {/* ---------- hero: identity + KPIs | digital twin ---------- */}
+      <section className="hero">
+        <div className="hero-left">
+          <div className="eyebrow">Connected vehicle intelligence</div>
+          <h1 className="hero-title">FleetPulse Intelligence</h1>
+          <p className="hero-sub">Connected Vehicle Operations &amp; Efficiency Intelligence</p>
+          <div className="row" style={{ gap: 8, margin: "14px 0 22px" }}>
+            <span className="scope-pill">Historical recording · not live telemetry</span>
+            <span className="scope-pill">Real J1939/FMS CAN data</span>
           </div>
-          <p className="statement" style={{ marginTop: 14, marginBottom: 0 }}>{data.module_statement}</p>
-        </Panel>
-        <Panel title="Scope & data notes">
-          <dl className="dl">
-            <dt>Vehicle</dt><dd>{data.scope.vehicle_id}</dd>
-            <dt>Window</dt><dd>Part 3 archive</dd>
-            <dt>Timezone</dt><dd>{data.scope.timestamp_timezone}</dd>
-            <dt>Recording sessions</dt><dd>{s.recording_sessions_total} ({s.sessions_with_any_engine_on} with any engine-on)</dd>
-          </dl>
-          {s.short_engine_fragments.length > 0 && (
-            <p className="small muted" style={{ marginBottom: 0 }}>
-              {s.short_engine_fragments.length} short engine-on fragment outside the {s.engine_operation_sessions} sessions (
-              {s.short_engine_fragments.map((f) => `${ts(f.session_start)}, ${duration(f.engine_on_duration_s)} engine-on, ${f.stationary_events} event`).join("; ")}
-              ). {s.note}
-            </p>
+          <div className="hero-kpis">
+            <Kpi label="Engine-on time" value={num(k.engine_on_hours, 2)} unit="h" provenance="measured" to="/sessions" />
+            <Kpi label="Distance" value={num(k.distance_km, 1)} unit="km" provenance="measured" />
+            <Kpi label="Observed fuel" value={num(k.fuel_consumed_l, 1)} unit="L" provenance="measured" />
+            <Kpi label="Engine-operation sessions" value={int(s.engine_operation_sessions)} sub={`${s.recording_sessions_total} recording sessions in total`}
+              provenance="derived" to="/sessions" />
+          </div>
+          <p className="small muted" style={{ marginTop: 16, maxWidth: 520 }}>
+            One Renault T520 6x2 · {ts(data.scope.period_start, false)} → {ts(data.scope.period_end, false)} (logger clock, timezone unknown).
+            Measured from the truck's FMS CAN interface and processed through Bronze → Silver → Gold.
+          </p>
+          <div className="row" style={{ marginTop: 18 }}>
+            <Link className="btn primary" to="/vehicle">Open Digital Twin</Link>
+            <button className="btn" onClick={() => setShowAnalyst(true)}>Ask FleetPulse AI</button>
+          </div>
+        </div>
+        <div className="hero-right">
+          <div className="twin-caption">
+            <span className="eyebrow">Vehicle · Digital twin</span>
+            <span className="small muted">
+              {ref ? <>Values from the <Link to={`/idle/events/${encodeURIComponent(ref.event_id)}`}>reference event</Link> ({ts(ref.event_start, false)}, {duration(ref.duration_seconds)}). </> : null}
+              Generic tractor illustration. Select a system to explore its signals.
+            </span>
+          </div>
+          <VehicleVisualization variant="hero" annotations={annotations}
+            onSystemSelect={(sys) => sys && nav(`/vehicle?system=${sys}`)}
+            caption="Generic heavy-duty tractor. Systems link to the Digital Twin." />
+        </div>
+      </section>
+
+      {/* ---------- observed pattern | event intelligence | investigation ---------- */}
+      <section className="grid g3 story">
+        <div className="panel pattern">
+          <div className="panel-head"><h2>Observed operating pattern</h2><Provenance kind="measured" /></div>
+          <div className="big-stats">
+            <div><div className="big-num">{num(k.stationary_engine_on_hours, 2)}<small>h</small></div><div className="big-lbl">stationary with engine running</div></div>
+            <div><div className="big-num">{num(k.stationary_pct_of_engine_on_time, 1)}<small>%</small></div><div className="big-lbl">of engine-on time</div></div>
+            <div><div className="big-num">{num(k.stationary_fuel_consumed_l, 2)}<small>L</small></div><div className="big-lbl">observed fuel during this state ({num(k.stationary_fuel_pct, 2)} %)</div></div>
+          </div>
+          <div className="composition" role="img" aria-label={`Moving ${num(k.moving_hours, 2)} hours, stationary engine-on ${num(k.stationary_engine_on_hours, 2)} hours`}>
+            <div style={{ width: `${(k.moving_hours / k.engine_on_hours) * 100}%`, background: C.moving }} title={`Moving ${num(k.moving_hours, 2)} h`} />
+            <div style={{ width: `${(k.stationary_engine_on_hours / k.engine_on_hours) * 100}%`, background: C.stationary }} title={`Stationary ${num(k.stationary_engine_on_hours, 2)} h`} />
+          </div>
+          <div className="legend" style={{ marginTop: 8 }}>
+            <span><i className="swatch" style={{ background: C.moving }} />Moving {num(k.moving_hours, 2)} h</span>
+            <span><i className="swatch" style={{ background: C.stationary }} />Stationary, engine on {num(k.stationary_engine_on_hours, 2)} h</span>
+          </div>
+          <p className="note-line">Observed operating state · not automatically classified as waste. The reason for each stop is not in the telemetry.</p>
+        </div>
+
+        <div className="panel">
+          <div className="panel-head"><h2>Event intelligence</h2><Provenance kind="derived" /></div>
+          {!sm ? <PanelSkeleton height={160} /> : (
+            <>
+              <div className="big-num" style={{ margin: "6px 0 2px" }}>{int(sm.events_total)}</div>
+              <div className="big-lbl">observed stationary engine-on events (≥ 2 s)</div>
+              <div className="dist" role="list">
+                {dist.map((d) => (
+                  <div key={d.duration_class} className="dist-row" role="listitem">
+                    <span className="dist-lbl mono">{d.label}</span>
+                    <span className="dist-bar"><i style={{ width: `${Math.max(1.5, (d.events / maxEvents) * 100)}%`,
+                      background: d.attention_group === "extended" ? C.stationary : C.neutral }} /></span>
+                    <span className="dist-val mono">{int(d.events)}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="note-line">Most events are short stops between driving. Grey = routine, orange = extended (≥ 5 min).</p>
+            </>
           )}
-        </Panel>
-      </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-head"><h2>Investigation</h2><Link to="/idle" className="small">Idle Intelligence →</Link></div>
+          {!sm ? <PanelSkeleton height={160} /> : (
+            <>
+              <div className="inv-stats">
+                <Link to="/idle/events?attention_group=extended" className="inv-stat">
+                  <span className="big-num">{int(sm.attention_groups.extended.events)}</span><span className="big-lbl">extended events</span>
+                </Link>
+                <Link to="/sessions" className="inv-stat">
+                  <span className="big-num">{int(s.sessions_with_over_15_min_stationary)}<small>/ {int(s.engine_operation_sessions)}</small></span>
+                  <span className="big-lbl">sessions &gt; 15 min stationary</span>
+                </Link>
+              </div>
+              <div className="inv-list">
+                {sm.highlighted_events.map((e, i) => (
+                  <Link key={e.event_id} to={`/idle/events/${encodeURIComponent(e.event_id)}`} className="inv-item">
+                    <span className="mono small">{ts(e.event_start, false)}</span>
+                    <span className="mono">{duration(e.duration_seconds)}</span>
+                    <span className="mono muted small">{num(e.fuel_consumed_l, 3)} L</span>
+                    {i === 0 && <span className="tag">Reference</span>}
+                  </Link>
+                ))}
+              </div>
+              <div className="row" style={{ marginTop: 12 }}>
+                <Link className="btn small-btn" to="/vehicle/trace">Trace CAN → Gold</Link>
+                <Link className="btn small-btn" to="/idle/events">Explore events</Link>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

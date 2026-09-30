@@ -5,7 +5,7 @@ import { ConfidenceBadge, ErrorBox, InterpretationBadge, Loading } from "./ui";
 
 /** Deterministic evidence object for one event - what a future AI analyst will be given. No LLM call. */
 export default function EvidenceDrawer({ eventId, onClose }: { eventId: string; onClose: () => void }) {
-  const { data, error } = useApi(() => api.evidence(eventId), [eventId]);
+  const { data, error, reload } = useApi(() => api.evidence(eventId), [eventId]);
   const [raw, setRaw] = useState(false);
   return (
     <>
@@ -18,8 +18,8 @@ export default function EvidenceDrawer({ eventId, onClose }: { eventId: string; 
           </div>
           <button className="btn" onClick={onClose}>Close</button>
         </div>
-        {error && <ErrorBox error={error} />}
-        {!data && !error && <Loading />}
+        {error && <ErrorBox error={error} onRetry={reload} embedded />}
+        {!data && !error && <Loading embedded />}
         {data && (() => {
           const ev = data.evidence;
           return (
@@ -35,7 +35,7 @@ export default function EvidenceDrawer({ eventId, onClose }: { eventId: string; 
               </div>
               <div className="ev-block">
                 <h3>Detection rule</h3>
-                <p className="small" style={{ margin: 0, color: "#c3c2b7" }}>
+                <p className="small" style={{ margin: 0, color: "var(--text-2)" }}>
                   <span className="mono">{ev.rule.version}</span> · {ev.rule.definition}
                   {ev.rule.thresholds_are_development_defaults && <span className="muted"> (thresholds are development defaults)</span>}
                 </p>

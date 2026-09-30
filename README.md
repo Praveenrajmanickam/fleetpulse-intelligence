@@ -4,7 +4,7 @@
 
 FleetPulse turns raw CAN traffic from a real heavy-duty truck into traceable operational intelligence. Every figure on the dashboard traces back through a deterministic pipeline to the CAN frames it came from. An evidence-grounded AI layer explains those figures without ever computing them.
 
-![Overview](reports/dashboard_v1/01_overview.png)
+![FleetPulse Intelligence — Overview (Dashboard V2)](reports/dashboard_v2/01_overview.png)
 
 ---
 
@@ -71,7 +71,7 @@ Built on **Part 3** of a real heavy-duty truck dataset: one Renault T520 6x2, ob
 | Fuel consumed during that observed state | **19.60 L** (9.96 % of observed fuel) |
 | Stationary engine-on events | **880**, of which 778 lasted under 1 minute, 16 were 5 minutes or longer, and 3 exceeded 15 minutes |
 | Engine-operation sessions with > 15 min accumulated stationary engine-on time | **11 / 17** |
-| Automated tests | **355** |
+| Automated tests | **375** backend (pytest) · **34** frontend (Vitest) |
 
 The 19.60 L is **observed consumption during a measured vehicle state**. The telemetry holds no location, job, PTO or driver context, so FleetPulse does not label any of it as waste, avoidable or a potential saving. Stationary running can be legitimate: loading, queuing, warm-up, cab heating, auxiliary equipment.
 
@@ -112,19 +112,63 @@ Details: [architecture_v1.md](docs/architecture_v1.md) · [bronze.md](docs/bronz
 
 ## Dashboard
 
-A dark, desktop-first operations UI (React 19 + TypeScript + Recharts). It is labelled throughout as **one vehicle / Part 3 observation window**. Traceability runs KPI → session → event → evidence object.
+A dark, desktop-first automotive operations UI (React 19 + TypeScript + Recharts). It is labelled throughout as **one vehicle · Part 3 observation window · historical recording, not live telemetry**. Values carry a provenance tag: **Measured**, **Derived**, **Assumed** (scenario inputs) or **AI interpretation**.
 
-| Idle Intelligence | Event detail |
+| Feature | What it does |
 |---|---|
-| ![Idle Intelligence](reports/dashboard_v1/02_idle_intelligence.png) | ![Event detail](reports/dashboard_v1/04_event_detail.png) |
-| Short routine stops are separated from the 16 extended events that merit review with operational context. | One event with its measured values, detection confidence ("high"), interpretation status ("context unknown") and Silver telemetry around it. |
+| **Vehicle Digital Twin** | Interactive generic tractor. Each vehicle system links to its decoded J1939 signals. |
+| **Sensor Explorer** | The 12 decoded signals: PGN/SPN, byte position, scaling, unit, availability and documented caveats. |
+| **Signal Health** | Availability and quality of the recorded data per signal (data health, not mechanical health). |
+| **CAN → Gold Traceability** | One real value followed from the raw CAN frame to the Gold event. |
+| **Idle Intelligence** | 880 stationary engine-on events: routine → extended → investigation → evidence, with the `idle-v1` rule. |
+| **Event Investigation** | Before → event → after, the systems involved, measured values, missing context, and the telemetry timeline. |
+| **Session Explorer** | The 17 engine-operation sessions (46 recording sessions) with drill-down timelines. |
+| **Impact Scenario** | Operator-assumed what-if on observed stationary fuel, computed by the Gold scenario engine and labelled *scenario / estimate, not observed savings*. |
+| **FleetPulse AI Analyst** | Evidence-grounded explanations with measured facts, interpretation, limitations, next steps, evidence and validation. |
 
-| Session timeline | AI Analyst (mock provider) |
+| Event investigation | Signal Health |
 |---|---|
-| ![Session timeline](reports/dashboard_v1/06_session_detail.png) | ![AI Analyst](reports/dashboard_v1/10_ai_event_waste.png) |
-| Speed, engine speed, fuel rate and coolant for a recording session, with the Gold events shaded. | Asked "Can we call this fuel waste?", the analyst declines to make the claim and separates what was measured from what is unknown. |
+| ![Event investigation](reports/dashboard_v2/05_event_detail.png) | ![Signal Health](reports/dashboard_v2/07_signal_health.png) |
+| The longest event: 19m 29s stationary with the engine on, 0.626 L observed, ~600 rpm, coolant 60 → 63 °C. Engine off before, driving after; detection **high**, interpretation **context unknown**. | Signal data availability in the recording. Clutch is *unavailable* (not-available code in 100 % of frames); ambient temperature carries a *quality warning*. |
 
-See [dashboard_v1.md](docs/dashboard_v1.md) for all screens and the Gold-to-UI mapping.
+See [dashboard_v1.md](docs/dashboard_v1.md) for the API and the Gold-to-UI mapping.
+
+## Vehicle Digital Twin
+
+FleetPulse provides an interactive heavy-duty vehicle visualization that connects physical vehicle systems to the J1939 signals it decodes:
+
+- **Engine / Powertrain:** engine speed (EEC1 SPN 190), engine load (EEC2 SPN 92)
+- **Fuel System:** fuel rate (LFE SPN 183), high-resolution total fuel (HRLFC SPN 5054)
+- **Cooling:** coolant temperature (ET1 SPN 110)
+- **Driver Controls:** accelerator pedal, brake, cruise control and clutch switches
+- **Vehicle Motion:** wheel-based speed (CCVS SPN 84), high-resolution total distance (VDHR SPN 917)
+- **Environment:** ambient air temperature (AMB SPN 171), shown with its documented data-quality warning
+
+Hover a region to highlight it; select it to see its signals, decoding, availability and links into the Sensor Explorer and the trace. Values shown on the vehicle are always labelled with their historical context (for example *reference event · measured*). Nothing is presented as live.
+
+The vehicle is a **generic European heavy-duty tractor illustration**, not an OEM-specific or exact Renault digital twin. The renderer sits behind a small interface, so a different renderer can be substituted without changing the pages.
+
+![Vehicle Digital Twin](reports/dashboard_v2/02_vehicle_digital_twin.png)
+
+| Sensor Explorer |
+|---|
+| ![Sensor Explorer](reports/dashboard_v2/03_sensor_explorer.png) |
+
+## CAN-to-Intelligence Traceability
+
+For any decoded signal, FleetPulse follows one value through every layer:
+
+```
+Raw CAN frame → CAN ID → J1939 PGN → SPN → byte decoding / scaling → physical signal
+             → Silver signal event → Silver telemetry (100 ms grid) → Gold event → operational intelligence
+```
+
+- **Real frames only.** The trace uses a real source frame from Bronze (with its source file and line) and the **production decoder**; no example is fabricated.
+- **Anchor.** It starts from the Silver telemetry row at the midpoint of a Gold event and works back to the frame that row is based on.
+- **Consistency checks.** The page verifies that the decoded value equals the Silver signal event for the same source line and the Silver telemetry value.
+- **Example.** For engine speed: frame `0x0CF004E6` → PGN 61444 (EEC1) → SPN 190 → bytes 4–5 `0xBD, 0x12` → raw 4797 × 0.125 rpm/bit = **599.625 rpm** → `engine_speed_rpm` → a stationary engine-on event under `idle-v1`.
+
+![CAN-to-Gold traceability](reports/dashboard_v2/10_architecture_traceability.png)
 
 ## AI Analyst: current status
 
@@ -147,6 +191,8 @@ Gold evidence → compact evidence package → provider (LLM or mock)
 
 See [ai_analyst_v1.md](docs/ai_analyst_v1.md).
 
+![FleetPulse AI Analyst (development mock)](reports/dashboard_v2/08_ai_analyst.png)
+
 ## Project structure
 
 ```
@@ -157,13 +203,13 @@ src/fleetpulse/
   gold/                     Idle Intelligence rule, summaries, scenario engine, evidence objects
   discovery/                archive screen and business discovery analysis
   pipelines/                runnable entry points (python -m fleetpulse.pipelines.<name>)
-  api/                      FastAPI serving layer
+  api/                      FastAPI serving layer (Gold, signal catalog, signal health, traceability)
   ai/                       AI Analyst: evidence retrieval, providers, validation, claim policy, audit
-frontend/                   React + TypeScript dashboard (Vite)
+frontend/                   React + TypeScript dashboard (Vite), Vitest tests
 config/                     archive member lists for each documented run
-tests/                      355 tests
+tests/                      backend tests (pytest)
 docs/                       design and results documentation
-reports/                    dashboard screenshots and analysis figures
+reports/                    dashboard screenshots (dashboard_v2/, dashboard_v1/) and analysis figures
 ```
 
 ## Running locally
@@ -218,14 +264,15 @@ npm run dev          # or: hot-reload dev server on :5173, proxying /api to :800
 ### 6. Tests
 
 ```bash
-pytest
+pytest                                   # backend
+cd frontend && npm test && npm run typecheck   # frontend
 ```
 
-Most tests use synthetic fixtures. Tests that need the extracted Part 3 files (reference-parity checks) or the local Part 3 Gold build (API and AI contract tests) are skipped when those are absent, so a clone without the dataset runs a reduced suite. All 355 run with the data in place.
+Most backend tests use synthetic fixtures. Tests that need the extracted Part 3 files (reference-parity checks) or the local Part 3 Gold, Silver and Bronze builds (API, AI and signal contract tests) are skipped when those are absent, so a clone without the dataset runs a reduced suite. All 375 run with the data in place. The frontend tests use API responses captured from the Part 3 build and need no local data.
 
 ## Testing
 
-**355 tests** protect:
+**409 automated tests** across backend and frontend: **375 backend** (pytest) and **34 frontend** (Vitest). They protect:
 
 | Area | What is protected |
 |---|---|
@@ -236,15 +283,20 @@ Most tests use synthetic fixtures. Tests that need the extracted Part 3 files (r
 | Gold | event detection boundaries, fuel integration, counter reconciliation, scenario inputs |
 | API | exact Gold values served, pagination and filters, 404/422 handling, wording contract |
 | AI Analyst | evidence retrieval, routing through the Gold scenario engine, hallucinated numbers, prohibited claims, prompt injection, secret leakage, timeouts and fallback, audit |
+| Signals | catalog equals the verified definitions; health counts reconcile with Silver rows; a CAN → Gold trace for all 12 signals where decoder = Silver signal event = Silver telemetry |
+| Frontend | backend-unavailable state, provenance labels, keyboard access, Digital Twin interaction, Sensor Explorer metadata, Signal Health wording, trace rendering, mock-analyst labelling |
 
 ## Limitations
 
-- **One truck** (Renault T520 6x2) and **one archive part** (Part 3) for the product V1. Parts 1, 2 and 4 are not processed.
+- **One truck** (Renault T520 6x2) and **one archive part** (Part 3). Parts 1, 2 and 4 are not processed. Nothing here is a fleet-wide result.
+- **Historical telemetry, not live.** The dashboard presents a recorded observation window; no real-time or production deployment is claimed.
 - **Observation span:** roughly three weeks (2021-01-18 → 2021-02-10), with most distance on four days.
 - **Timestamps** are the logger's wall clock; the **timezone is unknown**, so there is no day or shift reporting.
-- **No GPS, job, driver or PTO context.** The reason for any stationary engine-on period is unknown, so stationary operation **cannot be classified as waste** automatically.
+- **No GPS, route, job, payload, road-grade, PTO or driver context.** The reason for any stationary engine-on period is unknown. The 19.60 L is observed fuel during stationary engine-on operation, **not proven waste**, and no savings, driver fault or predictive-maintenance conclusion is drawn.
 - **Rule thresholds** (300 rpm, 0.5 km/h, 2 s, 5- and 15-minute classes) are documented development defaults derived from this dataset, not industry standards.
-- **AI Analyst** is demonstrated with the mock provider only; the live-LLM adapters have not been validated.
+- **AI Analyst** is demonstrated with the development mock provider only; the live-LLM adapters have not been validated.
+- **Storage.** The measured Part 3 Gold build is Parquet-backed; Delta Lake support was implemented and parity-tested separately.
+- **Digital Twin** is a generic vehicle illustration, not an OEM-specific or exact Renault model. Signal Health describes data availability, not mechanical condition.
 - **Scale.** This is a local, single-machine portfolio platform (Spark `local[*]`, API without authentication), not production fleet infrastructure.
 
 ## Roadmap
@@ -271,7 +323,7 @@ These items are **not** implemented yet:
 | [business_discovery_v1.md](docs/business_discovery_v1.md) | exploratory analysis and candidate problems |
 | [gold_idle_intelligence.md](docs/gold_idle_intelligence.md) | Idle Intelligence rule, validation, results |
 | [dashboard_contract_v1.md](docs/dashboard_contract_v1.md) | Gold serving contract |
-| [dashboard_v1.md](docs/dashboard_v1.md) | API, screens, Gold-to-UI mapping |
+| [dashboard_v1.md](docs/dashboard_v1.md) | API, screens (V1), Gold-to-UI mapping |
 | [ai_analyst_v1.md](docs/ai_analyst_v1.md) | AI Analyst architecture, validation, security |
 
 ## Data and licence

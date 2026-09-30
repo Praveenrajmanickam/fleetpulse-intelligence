@@ -72,8 +72,8 @@ export default function EventExplorer() {
         <button className="btn" onClick={() => setSp(new URLSearchParams(), { replace: true })}>Reset</button>
       </div>
 
-      {events.error && <ErrorBox error={events.error} />}
-      {!events.data && !events.error && <Loading />}
+      {events.error && <ErrorBox error={events.error} onRetry={events.reload} embedded />}
+      {!events.data && !events.error && <Loading embedded />}
       {events.data && (
         <>
           <div className="spread small muted" style={{ marginBottom: 8 }}>

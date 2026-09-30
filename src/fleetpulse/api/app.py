@@ -28,6 +28,7 @@ from fleetpulse.ai.policy import policy_document
 from fleetpulse.ai.providers import AIProvider, ProviderUnavailable, resolve_provider, timeout_from_env
 from fleetpulse.ai.service import AnalystRequestError, AnalystService, AskRequest
 from fleetpulse.api import serving
+from fleetpulse.api import signals as signal_serving
 from fleetpulse.api.repository import GoldRepository, records
 from fleetpulse.gold import evidence as gold_evidence
 from fleetpulse.gold.config import IdleRuleConfig
@@ -332,6 +333,29 @@ def create_app(gold_root: Path, silver_root: Path | None, frontend_dist: Path | 
         obj = gold_evidence.evidence_object(records(full)[0], cfg)
         return {"provenance": "generated on request from the Gold event row by fleetpulse.gold.evidence",
                 "evidence": obj}
+
+    # --- Signals (Dashboard V2): catalog, data/signal health, traceability ------------------
+    @app.get("/api/v1/signals")
+    def signals_catalog():
+        items = signal_serving.catalog(repo.build_info()["rule_config"])
+        return {"standard": items[0]["standard"] if items else None, "count": len(items),
+                "source": "fleetpulse.j1939.definitions (verified against FMS-Standard v02.00)", "items": items}
+
+    @app.get("/api/v1/signals/health")
+    def signals_health():
+        try:
+            return signal_serving.health(repo)
+        except FileNotFoundError as exc:
+            raise HTTPException(503, str(exc)) from None
+
+    @app.get("/api/v1/signals/{name}/trace")
+    def signal_trace(name: str, event_id: str | None = Query(None, max_length=300)):
+        try:
+            return signal_serving.trace(repo, name, event_id)
+        except signal_serving.TraceNotFound as exc:
+            raise HTTPException(404, str(exc).strip("'\"")) from None
+        except FileNotFoundError as exc:
+            raise HTTPException(503, str(exc)) from None
 
     # --- AI Analyst V1 (explanatory layer; FleetPulse computes) -----------------------
     @app.get("/api/v1/ai/status")

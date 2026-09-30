@@ -1,12 +1,12 @@
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ErrorBox, Loading } from "../components/ui";
+import { activateOnKey, ErrorBox, Loading } from "../components/ui";
 import { api } from "../lib/api";
 import { duration, int, num, ts, useApi } from "../lib/format";
 
 export default function Sessions() {
   const [sp, setSp] = useSearchParams();
   const scope = sp.get("scope") === "all" ? "all" : "engine_operation";
-  const { data, error } = useApi(() => api.sessions(scope), [scope]);
+  const { data, error, reload } = useApi(() => api.sessions(scope), [scope]);
   const nav = useNavigate();
   return (
     <div className="page">
@@ -25,8 +25,8 @@ export default function Sessions() {
           </select>
         </label>
       </div>
-      {error && <ErrorBox error={error} />}
-      {!data && !error && <Loading />}
+      {error && <ErrorBox error={error} onRetry={reload} embedded />}
+      {!data && !error && <Loading embedded />}
       {data && (
         <>
           <p className="small muted">{int(data.total)} sessions · {data.definition}</p>
@@ -49,7 +49,9 @@ export default function Sessions() {
               </thead>
               <tbody>
                 {data.items.map((s) => (
-                  <tr key={s.recording_session_id} className="clickable" onClick={() => nav(`/sessions/${encodeURIComponent(s.recording_session_id)}`)}>
+                  <tr key={s.recording_session_id} className="clickable" tabIndex={0} aria-label={`Open recording session starting ${ts(s.session_start)}`}
+                    onClick={() => nav(`/sessions/${encodeURIComponent(s.recording_session_id)}`)}
+                    onKeyDown={activateOnKey(() => nav(`/sessions/${encodeURIComponent(s.recording_session_id)}`))}>
                     <td className="strong mono">{ts(s.session_start)}</td>
                     <td className="num strong">{duration(s.engine_on_duration_s)}</td>
                     <td className="num">{duration(s.moving_duration_s)}</td>

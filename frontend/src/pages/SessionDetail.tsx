@@ -2,22 +2,25 @@ import { Link, useParams } from "react-router-dom";
 import { useState } from "react";
 import AnalystPanel from "../components/AnalystPanel";
 import { C, TimelineMultiples } from "../components/charts";
-import { EventTable, Kpi, Loading, Panel } from "../components/ui";
-import { api } from "../lib/api";
+import { ErrorBox, EventTable, Kpi, Loading, Panel } from "../components/ui";
+import { NotFoundState } from "../components/foundation/ApiState";
+import { ApiError, api } from "../lib/api";
 import { clock, duration, int, num, shortSession, ts, useApi } from "../lib/format";
 
 export default function SessionDetail() {
   const { sessionId = "" } = useParams();
-  const { data, error } = useApi(() => api.session(sessionId), [sessionId]);
+  const { data, error, reload } = useApi(() => api.session(sessionId), [sessionId]);
   const [showAnalyst, setShowAnalyst] = useState(false);
   if (error) {
-    return (
-      <div className="page">
-        <div className="crumbs"><Link to="/sessions">Sessions</Link></div>
-        <h1>Session not found</h1>
-        <p className="lede">{error.message}</p>
-      </div>
-    );
+    if (error instanceof ApiError && error.kind === "not_found") {
+      return (
+        <div className="page">
+          <div className="crumbs"><Link to="/sessions">Sessions</Link></div>
+          <NotFoundState title="Session not found" message={error.message} backTo="/sessions" backLabel="Back to Session Explorer" />
+        </div>
+      );
+    }
+    return <ErrorBox error={error} onRetry={reload} />;
   }
   if (!data) return <Loading />;
   const s = data.session;

@@ -5,10 +5,11 @@ import {
 import { useNavigate } from "react-router-dom";
 import type { IdleSummary, Timeline } from "../lib/api";
 import { duration, hours, num, shortSession } from "../lib/format";
+import { color } from "../design/tokens";
 
-const AXIS = "#383835";
-const TICK = { fill: "#8d8c84", fontSize: 11, fontFamily: "IBM Plex Mono" };
-export const C = { moving: "#3987e5", stationary: "#d95926", neutral: "#6f6e67" };
+const AXIS = color.axis;
+const TICK = { fill: color.muted, fontSize: 11, fontFamily: "IBM Plex Mono" };
+export const C = { moving: color.moving, stationary: color.stationary, neutral: color.neutralSeries };
 
 /** Engine-on time composition: how much of engine-on time was stationary? */
 export function EngineTimeComposition(props: { movingH: number; stationaryH: number; engineOnH: number; stationaryPct: number }) {
@@ -18,9 +19,9 @@ export function EngineTimeComposition(props: { movingH: number; stationaryH: num
       <div className="legend">
         <span><i className="swatch" style={{ background: C.moving }} />Moving · {num(props.movingH, 2)} h</span>
         <span><i className="swatch" style={{ background: C.stationary }} />Stationary, engine on · {num(props.stationaryH, 2)} h ({num(props.stationaryPct, 1)} %)</span>
-        <span><i className="swatch" style={{ background: "#2e2e2b" }} />Speed signal unavailable (remainder)</span>
+        <span><i className="swatch" style={{ background: color.borderStrong }} />Speed signal unavailable (remainder)</span>
       </div>
-      <div className="composition" style={{ background: "#2e2e2b" }}>
+      <div className="composition" style={{ background: color.borderStrong }}>
         <div style={{ width: w(props.movingH), background: C.moving }} title={`Moving ${num(props.movingH, 2)} h`} />
         <div style={{ width: w(props.stationaryH), background: C.stationary }} title={`Stationary engine-on ${num(props.stationaryH, 2)} h`} />
       </div>
@@ -38,7 +39,7 @@ export function ShareBar(props: { pct: number; color: string; label: string }) {
       <div className="legend">
         <span><i className="swatch" style={{ background: props.color }} />{props.label} · {num(props.pct, 2)} %</span>
       </div>
-      <div className="composition" style={{ background: "#2e2e2b" }}>
+      <div className="composition" style={{ background: color.borderStrong }}>
         <div style={{ width: `${props.pct}%`, background: props.color }} />
       </div>
     </div>
@@ -62,7 +63,7 @@ export function DurationDistribution({ data }: { data: IdleSummary["duration_dis
             active && payload?.length ? (
               <div className="tooltip"><b>{payload[0].payload.label}</b><div className="mono">{payload[0].value} events</div></div>
             ) : null} />
-          <Bar dataKey="events" isAnimationActive={false} radius={[4, 4, 0, 0]} label={{ position: "top", fill: "#c3c2b7", fontSize: 11, fontFamily: "IBM Plex Mono" }}>
+          <Bar dataKey="events" isAnimationActive={false} radius={[4, 4, 0, 0]} label={{ position: "top", fill: color.text2, fontSize: 11, fontFamily: "IBM Plex Mono" }}>
             {data.map((d) => <Cell key={d.duration_class} fill={d.attention_group === "extended" ? C.stationary : C.neutral} />)}
           </Bar>
         </BarChart>
@@ -107,9 +108,9 @@ export function SessionStationaryChart({ sessions }: { sessions: IdleSummary["se
               </div>
             );
           }} />
-          <Bar dataKey="moving" stackId="a" isAnimationActive={false} fill={C.moving} stroke="#1a1a19" strokeWidth={1}
+          <Bar dataKey="moving" stackId="a" isAnimationActive={false} fill={C.moving} stroke={color.surface} strokeWidth={1}
             onClick={(d) => nav(`/sessions/${encodeURIComponent((d as unknown as { id: string }).id)}`)} style={{ cursor: "pointer" }} />
-          <Bar dataKey="stationary" stackId="a" isAnimationActive={false} fill={C.stationary} radius={[0, 4, 4, 0]} stroke="#1a1a19" strokeWidth={1}
+          <Bar dataKey="stationary" stackId="a" isAnimationActive={false} fill={C.stationary} radius={[0, 4, 4, 0]} stroke={color.surface} strokeWidth={1}
             onClick={(d) => nav(`/sessions/${encodeURIComponent((d as unknown as { id: string }).id)}`)} style={{ cursor: "pointer" }} />
         </BarChart>
       </ResponsiveContainer>
@@ -143,13 +144,13 @@ export function TimelineMultiples(props: { timeline: Timeline; spans: Span[]; he
   return (
     <div>
       <div className="legend">
-        <span><i className="swatch" style={{ background: "rgba(217,89,38,0.28)", outline: "1px solid #d95926" }} />Stationary engine-on event (Gold)</span>
+        <span><i className="swatch" style={{ background: "rgba(217,89,38,0.28)", outline: `1px solid ${color.stationary}` }} />Stationary engine-on event (Gold)</span>
         <span className="muted">Silver 100 ms grid, every {timeline.sampling_step_rows}th row shown · gaps = no fresh/valid value</span>
       </div>
       {SERIES.map((s, i) => (
         <div key={s.key} style={{ marginBottom: 4 }}>
           <div className="spread small">
-            <span style={{ color: "#c3c2b7" }}>{s.label} <span className="muted">({s.unit})</span></span>
+            <span className="text-2">{s.label} <span className="muted">({s.unit})</span></span>
             <span className="muted">{s.q}</span>
           </div>
           <ResponsiveContainer width="100%" height={h}>
@@ -162,14 +163,14 @@ export function TimelineMultiples(props: { timeline: Timeline; spans: Span[]; he
               <XAxis dataKey="x" type="number" domain={domain} scale="time" tickFormatter={fmtClock} tick={TICK}
                 axisLine={{ stroke: AXIS }} tickLine={false} hide={i < SERIES.length - 1} minTickGap={60} />
               <YAxis tick={TICK} axisLine={false} tickLine={false} width={44} />
-              <Tooltip cursor={{ stroke: "#8d8c84", strokeWidth: 1 }} content={({ active, payload, label }) =>
+              <Tooltip cursor={{ stroke: color.muted, strokeWidth: 1 }} content={({ active, payload, label }) =>
                 active && payload?.length ? (
                   <div className="tooltip">
                     <b className="mono">{fmtClock(label as number)}</b>
                     <div className="mono">{num(payload[0].value as number, s.key === "engine_speed_rpm" ? 0 : 1)} {s.unit}</div>
                   </div>
                 ) : null} />
-              <Line type="linear" dataKey={s.key} stroke="#e8e6dc" strokeWidth={1.5} dot={false} isAnimationActive={false}
+              <Line type="linear" dataKey={s.key} stroke={color.text} strokeWidth={1.5} dot={false} isAnimationActive={false}
                 connectNulls={false} />
             </LineChart>
           </ResponsiveContainer>

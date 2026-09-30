@@ -1,0 +1,1 @@
+{"available":true,"policy_version":"claims-v1","prompt_version":"analyst-prompt-v1","max_question_chars":1000,"scopes":["event","session","overall","scenario"],"provider":"mock","model":"fleetpulse-mock-v1","is_mock":true,"message":"Development mock provider: deterministic template answers, not an LLM."}
